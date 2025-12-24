@@ -13,6 +13,7 @@ from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
 
 
+
 class VarifocalLoss(nn.Module):
     """
     Varifocal loss by Zhang et al.
@@ -240,6 +241,10 @@ class v8DetectionLoss:
             mask_gt,
         )
 
+        self.fg_mask = fg_mask
+        self.target_scores = target_scores
+        self.target_gt_idx = target_gt_idx
+
         target_scores_sum = max(target_scores.sum(), 1)
 
         # Cls loss
@@ -258,6 +263,88 @@ class v8DetectionLoss:
         loss[2] *= self.hyp.dfl  # dfl gain
 
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
+
+
+
+class massDetectionLoss(v8DetectionLoss):
+    def __init__(self, model):
+        super().__init__(model)
+        # self.mass_weight = model.args.mass_weight if hasattr(model.args, 'mass_weight') else 0.5
+        
+    def __call__(self, preds, batch):
+        """
+        Calculate detection loss and mass regression loss.
+        
+        Args:
+            preds: tuple of (det_preds, mass_preds)
+            batch: dictionary containing batch data including 'mass' (gt)
+            
+        Returns:
+            total_loss: combined detection and mass loss
+            loss_items: individual loss components for logging
+        """
+        # Unpack predictions
+        det_preds, mass_preds = preds
+        
+        # Calculate standard detection loss
+        det_loss, det_loss_items = super().__call__(det_preds, batch)
+        
+        # Extract mass targets from batch
+        if 'mass' not in batch:
+            # If no mass in batch, return only detection loss
+            return det_loss, det_loss_items
+            
+        mass_targets = batch['mass']  # shape: (bs, n_objects)
+        
+        # Get task assignments from detection loss calculation
+        fg_mask = self.fg_mask  # foreground mask from task-aligned assigner
+        target_scores = self.target_scores  # scores for positive samples
+        target_scores_sum = max(target_scores.sum(), 1)  # avoid division by zero
+        
+        # Calculate mass loss only for matched (positive) detections
+        if fg_mask.sum() > 0:
+            # Get predicted mass for positive samples
+            pred_mass = mass_preds[fg_mask]  # mass_preds: (bs, nc, num_anchors)
+            
+            # Get corresponding target mass
+            batch_idx = batch["batch_idx"].view(-1)
+            target_gt_idx = self.target_gt_idx[fg_mask]
+            
+            # Extract target mass for matched predictions
+            matched_mass = torch.zeros_like(pred_mass)
+            for i, gt_idx in enumerate(target_gt_idx): # enumerate over mass of each positive sample
+                b_idx = batch_idx[gt_idx]
+                matched_mass[i] = mass_targets[b_idx, gt_idx]
+            
+            # Scale predicted mass to [1, 10] range
+            scaled_pred_mass = 1.0 + 9.0 * torch.sigmoid(pred_mass)
+            
+            # MSE loss for mass regression, weighted by target confidence
+            mass_loss = F.mse_loss(
+                scaled_pred_mass, 
+                matched_mass,
+                reduction='none'
+            ).mean(1) * target_scores[fg_mask]
+            
+            mass_loss = mass_loss.sum() / target_scores_sum
+        else:
+            # No positive samples, zero loss
+            mass_loss = torch.tensor(0.0, device=det_loss.device)
+        
+        # Save the fg_mask for reference in the Trainer
+        self.fg_mask = fg_mask
+        
+        # Combine losses with weighting
+        total_loss = det_loss + self.mass_weight * mass_loss
+        
+        # Return combined loss and individual loss items for logging
+        return total_loss, torch.cat([det_loss_items, mass_loss.unsqueeze(0)])
+        
+    # Add a method to store the foreground mask and other matching info from assigner
+    def _get_assigner_info(self, assigner_out):
+        """Store key information from the assigner for use in mass loss calculation."""
+        _, _, self.target_scores, self.fg_mask, self.target_gt_idx = assigner_out
+        return super()._get_assigner_info(assigner_out)
 
 
 class v8SegmentationLoss(v8DetectionLoss):

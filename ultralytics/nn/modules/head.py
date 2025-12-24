@@ -101,7 +101,7 @@ class Detect(nn.Module):
         """Decode predicted bounding boxes and class probabilities based on multiple-level feature maps."""
         # Inference path
         shape = x[0].shape  # BCHW
-        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
+        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2) # concats all x based on anchor point of each xi
         if self.format != "imx" and (self.dynamic or self.shape != shape):
             self.anchors, self.strides = (x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5))
             self.shape = shape
@@ -110,7 +110,7 @@ class Detect(nn.Module):
             box = x_cat[:, : self.reg_max * 4]
             cls = x_cat[:, self.reg_max * 4 :]
         else:
-            box, cls = x_cat.split((self.reg_max * 4, self.nc), 1)
+            box, cls = x_cat.split((self.reg_max * 4, self.nc), 1) # splits to get bbox dfl/distribution features of bbox in (ltrb) format and cls probs
 
         if self.export and self.format in {"tflite", "edgetpu"}:
             # Precompute normalization factor to increase numerical stability
@@ -126,9 +126,9 @@ class Detect(nn.Module):
             )
             return dbox.transpose(1, 2), cls.sigmoid().permute(0, 2, 1)
         else:
-            dbox = self.decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides
+            dbox = self.decode_bboxes(self.dfl(box), self.anchors.unsqueeze(0)) * self.strides # gets boxes in xywh format after dfl conversion to single ltrb values
 
-        return torch.cat((dbox, cls.sigmoid()), 1)
+        return torch.cat((dbox, cls.sigmoid()), 1) # concats each box (xywh) tgt with its cls probs
 
     def bias_init(self):
         """Initialize Detect() biases, WARNING: requires stride availability."""
@@ -171,6 +171,39 @@ class Detect(nn.Module):
         i = torch.arange(batch_size)[..., None]  # batch indices
         return torch.cat([boxes[i, index // nc], scores[..., None], (index % nc)[..., None].float()], dim=-1)
 
+class MassDetect(Detect):
+    """YOLO regression head for mass."""
+
+    def __init__(self, nc = 80, ch=()):
+        """Initialize with number of classes `nc` and layer channels `ch`."""
+        super().__init__(nc, ch)
+
+        c4 = max(ch[0] // 4, nc) # number of channels for mass regression
+        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, nc, 1)) for x in ch) 
+
+
+    def forward(self, x):
+        """Get mass prediction"""
+        bs = x[0].shape[0]  # batch size
+        
+        mp = torch.cat([self.cv4[i](x[i]).view(bs, self.nc, -1) for i in range(self.nl)], 2)  # class-specific mass pred
+
+        det_output = Detect.forward(self, x) # (bs, no, all_anchors), where no = bbox dist features + class probs
+
+        if self.training:
+            return det_output, mp
+
+        # During inference: Add grades to detection outputs
+        scaled_mass = 1000 * torch.sigmoid(mp)  
+
+        if isinstance(det_output, tuple):
+            # When export=False, det_output is (pred, x), where pred is (bs, no, all_anchors) and x contains features
+            pred, features = det_output
+            # Scale mass to range [0,] using sigmoid and scaling
+            return torch.cat([pred, scaled_mass], dim=1), (features, mp)
+        else:
+            # When export=True, det_output is just predictions (bs, no, all_anchors)
+            return torch.cat([det_output, scaled_mass], dim=1)
 
 class Segment(Detect):
     """YOLO Segment head for segmentation models."""
@@ -201,7 +234,7 @@ class OBB(Detect):
     """YOLO OBB detection head for detection with rotation models."""
 
     def __init__(self, nc=80, ne=1, ch=()):
-        """Initialize OBB with number of classes `nc` and layer channels `ch`."""
+        
         super().__init__(nc, ch)
         self.ne = ne  # number of extra parameters
 
