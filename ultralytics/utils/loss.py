@@ -185,12 +185,12 @@ class v8DetectionLoss:
             out = torch.zeros(batch_size, 0, ne - 1, device=self.device)
         else:
             i = targets[:, 0]  # image index
-            _, counts = i.unique(return_counts=True)
+            _, counts = i.unique(return_counts=True) # count is number of repeated rows for each image, aka num of objects for each img
             counts = counts.to(dtype=torch.int32)
-            out = torch.zeros(batch_size, counts.max(), ne - 1, device=self.device)
+            out = torch.zeros(batch_size, counts.max(), ne - 1, device=self.device) 
             for j in range(batch_size):
-                matches = i == j
-                if n := matches.sum():
+                matches = i == j # gets bool tensor that are true for rows that corresponds to current img idx j
+                if n := matches.sum(): # n is the number of objects of each image
                     out[j, :n] = targets[matches, 1:]
             out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
         return out
@@ -206,14 +206,15 @@ class v8DetectionLoss:
 
     def __call__(self, preds, batch):
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
-        loss = torch.zeros(3, device=self.device)  # box, cls, dfl
+        loss = torch.zeros(3 + 1, device=self.device)  # box, cls, dfl, mass
         feats = preds[1] if isinstance(preds, tuple) else preds
-        pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
-            (self.reg_max * 4, self.nc), 1
+        pred_distri, pred_mass, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
+            (self.reg_max * 4, self.nc, self.nc), 1
         )
 
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+        pred_mass = pred_mass.permute(0, 2, 1).contiguous()
 
         dtype = pred_scores.dtype
         batch_size = pred_scores.shape[0]
@@ -221,9 +222,9 @@ class v8DetectionLoss:
         anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
 
         # Targets
-        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"], batch["mass"].view(-1, 1)), 1)
         targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
-        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
+        gt_labels, gt_bboxes, gt_mass = targets.split((1, 4, 1), 2)  # cls, xyxy
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
 
         # Pboxes
@@ -231,7 +232,14 @@ class v8DetectionLoss:
         # dfl_conf = pred_distri.view(batch_size, -1, 4, self.reg_max).detach().softmax(-1)
         # dfl_conf = (dfl_conf.amax(-1).mean(-1) + dfl_conf.amax(-1).amin(-1)) / 2
 
-        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+        '''
+        target_labels (torch.Tensor)	Target labels with shape (bs, num_total_anchors).
+        target_bboxes (torch.Tensor)	Target bounding boxes with shape (bs, num_total_anchors, 4).
+        target_scores (torch.Tensor)	Target scores with shape (bs, num_total_anchors, num_classes).
+        fg_mask (torch.Tensor)	        Foreground mask with shape (bs, num_total_anchors).
+        target_gt_idx (torch.Tensor)	Target ground truth indices with shape (bs, num_total_anchors).
+        '''
+        _, target_bboxes, target_scores, fg_mask, target_gt_idx, target_mass, = self.assigner(
             # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
             pred_scores.detach().sigmoid(),
             (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
@@ -239,11 +247,8 @@ class v8DetectionLoss:
             gt_labels,
             gt_bboxes,
             mask_gt,
+            gt_mass
         )
-
-        self.fg_mask = fg_mask
-        self.target_scores = target_scores
-        self.target_gt_idx = target_gt_idx
 
         target_scores_sum = max(target_scores.sum(), 1)
 
@@ -258,15 +263,25 @@ class v8DetectionLoss:
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
 
+            mass_mask = target_mass > 0 # checks if theres any invalid/missing mass labels
+
+            loss[3] = F.l1_loss(
+                pred_mass[mass_mask], 
+                target_mass[mass_mask],
+                reduction="sum"
+            ) / target_scores_sum if mass_mask.sum() > 0 else 0
+                    
+
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
+        loss[3] *= self.hyp.mass
 
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
 
-class massDetectionLoss(v8DetectionLoss):
+class MassDetectionLoss(v8DetectionLoss):
     def __init__(self, model):
         super().__init__(model)
         # self.mass_weight = model.args.mass_weight if hasattr(model.args, 'mass_weight') else 0.5
@@ -277,8 +292,14 @@ class massDetectionLoss(v8DetectionLoss):
         
         Args:
             preds: tuple of (det_preds, mass_preds)
-            batch: dictionary containing batch data including 'mass' (gt)
-            
+            batch: dictionary containing batch data including 'mass' 
+            batch	dict[str, Any]	Dictionary containing batch data with keys:
+                    - batch_idx: Tensor of batch indices
+                    - cls: Tensor of class labels
+                    - bboxes: Tensor of bounding boxes
+                    - ori_shape: Original image shapes
+                    - img: Batch of images
+                    - ratio_pad: Ratio and padding information	
         Returns:
             total_loss: combined detection and mass loss
             loss_items: individual loss components for logging
@@ -304,20 +325,21 @@ class massDetectionLoss(v8DetectionLoss):
         # Calculate mass loss only for matched (positive) detections
         if fg_mask.sum() > 0:
             # Get predicted mass for positive samples
-            pred_mass = mass_preds[fg_mask]  # mass_preds: (bs, nc, num_anchors)
+            
+            pred_mass = mass_preds.permute(0,2,1)[fg_mask] # permute to match shape of fg_mask
             
             # Get corresponding target mass
-            batch_idx = batch["batch_idx"].view(-1)
-            target_gt_idx = self.target_gt_idx[fg_mask]
+            batch_idx = batch["batch_idx"].view(-1) # get all batch indices
+            target_gt_idx = self.target_gt_idx[fg_mask] 
             
             # Extract target mass for matched predictions
             matched_mass = torch.zeros_like(pred_mass)
             for i, gt_idx in enumerate(target_gt_idx): # enumerate over mass of each positive sample
-                b_idx = batch_idx[gt_idx]
+                b_idx = batch_idx[gt_idx] # get correct batch idx
                 matched_mass[i] = mass_targets[b_idx, gt_idx]
             
-            # Scale predicted mass to [1, 10] range
-            scaled_pred_mass = 1.0 + 9.0 * torch.sigmoid(pred_mass)
+            # Scale predicted mass to [0,] range
+            scaled_pred_mass = 1000 * torch.sigmoid(pred_mass)  
             
             # MSE loss for mass regression, weighted by target confidence
             mass_loss = F.mse_loss(
