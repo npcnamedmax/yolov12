@@ -42,6 +42,7 @@ from .utils import (
 DATASET_CACHE_VERSION = "1.0.3"
 
 
+
 class YOLODataset(BaseDataset):
     """
     Dataset class for loading object detection and/or segmentation labels in YOLO format.
@@ -62,7 +63,8 @@ class YOLODataset(BaseDataset):
         self.data = data
         assert not (self.use_segments and self.use_keypoints), "Can not use both segments and keypoints."
         super().__init__(*args, **kwargs)
-
+    
+    
     def cache_labels(self, path=Path("./labels.cache")):
         """
         Cache dataset labels, check images and read shapes.
@@ -127,6 +129,7 @@ class YOLODataset(BaseDataset):
         x["hash"] = get_hash(self.label_files + self.im_files)
         x["results"] = nf, nm, ne, nc, len(self.im_files)
         x["msgs"] = msgs  # warnings
+        #print(x["labels"])
         save_dataset_cache_file(self.prefix, path, x, DATASET_CACHE_VERSION)
         return x
 
@@ -158,6 +161,8 @@ class YOLODataset(BaseDataset):
 
         # Check if the dataset is all boxes or all segments
         lengths = ((len(lb["cls"]), len(lb["bboxes"]), len(lb["segments"])) for lb in labels)
+        
+
         len_cls, len_boxes, len_segments = (sum(x) for x in zip(*lengths))
         if len_segments and len_boxes != len_segments:
             LOGGER.warning(
@@ -169,6 +174,7 @@ class YOLODataset(BaseDataset):
                 lb["segments"] = []
         if len_cls == 0:
             LOGGER.warning(f"WARNING ⚠️ No labels found in {cache_path}, training may not work correctly. {HELP_URL}")
+        print(labels)
         return labels
 
     def build_transforms(self, hyp=None):
@@ -177,21 +183,29 @@ class YOLODataset(BaseDataset):
             hyp.mosaic = hyp.mosaic if self.augment and not self.rect else 0.0
             hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
             transforms = v8_transforms(self, self.imgsz, hyp)
+            
+            transforms.append(
+                Format(bbox_format='xywh',
+                    normalize=True,
+                    return_mask=self.use_segments,
+                    return_keypoint=self.use_keypoints,
+                    batch_idx=True,
+                    mask_ratio=hyp.mask_ratio,
+                    mask_overlap=hyp.overlap_mask
+                )
+            )
         else:
             transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
-        transforms.append(
-            Format(
-                bbox_format="xywh",
-                normalize=True,
-                return_mask=self.use_segments,
-                return_keypoint=self.use_keypoints,
-                return_obb=self.use_obb,
-                batch_idx=True,
-                mask_ratio=hyp.mask_ratio,
-                mask_overlap=hyp.overlap_mask,
-                bgr=hyp.bgr if self.augment else 0.0,  # only affect training.
+            transforms.append(
+                Format(bbox_format='xywh',
+                    normalize=True,
+                    return_mask=self.use_segments,
+                    return_keypoint=self.use_keypoints,
+                    batch_idx=True,
+                    mask_ratio=hyp.mask_ratio,
+                    mask_overlap=hyp.overlap_mask
+                )
             )
-        )
         return transforms
 
     def close_mosaic(self, hyp):
@@ -227,6 +241,7 @@ class YOLODataset(BaseDataset):
             segments = np.zeros((0, segment_resamples, 2), dtype=np.float32)
         label["instances"] = Instances(bboxes, segments, keypoints, bbox_format=bbox_format, normalized=normalized)
         return label
+    
 
     @staticmethod
     def collate_fn(batch):
@@ -236,15 +251,28 @@ class YOLODataset(BaseDataset):
         values = list(zip(*[list(b.values()) for b in batch]))
         for i, k in enumerate(keys):
             value = values[i]
-            if k == "img":
+            # print(value,"hello")
+            if k == 'img':
+                value = [torch.as_tensor(v) if not isinstance(v, torch.Tensor) else v for v in value]
                 value = torch.stack(value, 0)
-            if k in {"masks", "keypoints", "bboxes", "cls", "segments", "obb", "mass"}:
+            if k in ['masks', 'keypoints', 'cls']:
+                value = [torch.as_tensor(v) if not isinstance(v, torch.Tensor) else v for v in value] # Convert each element to a tensor if it isn't already one
                 value = torch.cat(value, 0)
+            if k in ['bboxes']:
+                print(f"Tensor Shape: {value[0].shape}")
+                filtered_value = [v for v in value if v.dim() > 1 and v.size(1) == 5]
+                if len(filtered_value) == 0:
+                    print("filtered value: " , len(filtered_value), "Key is: ", k)
+                    raise ValueError(f"No valid tensors with size[1] == 5 for key '{k}'.")
+                value = torch.cat(filtered_value, 0)    
+                #print(f"[COLLATE] Batched bboxes shape: {value.shape}")
+                #print("  Sample weights (value[:, 4]):", value[:, 4][:10])  # First 10 weights
+
             new_batch[k] = value
-        new_batch["batch_idx"] = list(new_batch["batch_idx"])
-        for i in range(len(new_batch["batch_idx"])):
-            new_batch["batch_idx"][i] += i  # add target image index for build_targets()
-        new_batch["batch_idx"] = torch.cat(new_batch["batch_idx"], 0)
+        new_batch['batch_idx'] = list(new_batch['batch_idx'])
+        for i in range(len(new_batch['batch_idx'])):
+            new_batch['batch_idx'][i] += i  # add target image index for build_targets()
+        new_batch['batch_idx'] = torch.cat(new_batch['batch_idx'], 0)
         return new_batch
 
 
@@ -344,6 +372,7 @@ class GroundingDataset(YOLODataset):
                     "texts": texts,
                 }
             )
+        #print(labels)
         return labels
 
     def build_transforms(self, hyp=None):

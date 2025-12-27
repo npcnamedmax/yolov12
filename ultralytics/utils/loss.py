@@ -168,7 +168,7 @@ class v8DetectionLoss:
         self.hyp = h
         self.stride = m.stride  # model strides
         self.nc = m.nc  # number of classes
-        self.no = m.nc + m.reg_max * 4
+        self.no = m.no
         self.reg_max = m.reg_max
         self.device = device
 
@@ -222,7 +222,7 @@ class v8DetectionLoss:
         anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
 
         # Targets
-        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"], batch["mass"].view(-1, 1)), 1)
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
         targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
         gt_labels, gt_bboxes, gt_mass = targets.split((1, 4, 1), 2)  # cls, xyxy
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
@@ -280,7 +280,7 @@ class v8DetectionLoss:
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
-
+'''
 class MassDetectionLoss(v8DetectionLoss):
     def __init__(self, model):
         super().__init__(model)
@@ -367,7 +367,7 @@ class MassDetectionLoss(v8DetectionLoss):
         """Store key information from the assigner for use in mass loss calculation."""
         _, _, self.target_scores, self.fg_mask, self.target_gt_idx = assigner_out
         return super()._get_assigner_info(assigner_out)
-
+'''
 
 class v8SegmentationLoss(v8DetectionLoss):
     """Criterion class for computing training losses."""

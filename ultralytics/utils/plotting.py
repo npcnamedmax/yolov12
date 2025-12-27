@@ -1096,6 +1096,9 @@ def plot_images(
 
             if len(bboxes):
                 boxes = bboxes[idx]
+                if boxes.shape[1] > 4:
+                    boxes = boxes[:, :4]
+
                 conf = confs[idx] if confs is not None else None  # check for confidence presence (label vs pred)
                 if len(boxes):
                     if boxes[:, :4].max() <= 1.1:  # if normalized with tolerance 0.1

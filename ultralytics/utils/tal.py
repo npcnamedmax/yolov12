@@ -241,7 +241,7 @@ class TaskAlignedAssigner(nn.Module):
 
         target_mass = torch.zeros(
             (target_labels.shape[0], target_labels.shape[1], self.num_classes),
-            dtype=torch.float64,
+            dtype=torch.float32,
             device=target_labels.device,
         )  # (b, h*w, 80)
         target_mass.scatter_(2, target_labels.unsqueeze(-1), mass_correct_format) # assign mass to the correct class

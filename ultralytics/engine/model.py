@@ -8,8 +8,6 @@ import numpy as np
 import torch
 from PIL import Image
 
-from huggingface_hub import PyTorchModelHubMixin
-
 from ultralytics.cfg import TASK2DATA, get_cfg, get_save_dir
 from ultralytics.engine.results import Results
 from ultralytics.hub import HUB_WEB_ROOT, HUBTrainingSession
@@ -28,7 +26,7 @@ from ultralytics.utils import (
 )
 
 
-class Model(nn.Module, PyTorchModelHubMixin, repo_url="https://github.com/ultralytics/ultralytics", pipeline_tag="object-detection", license="agpl-3.0"):
+class Model(nn.Module):
     """
     A base class for implementing YOLO models, unifying APIs across different model types.
 
@@ -253,7 +251,8 @@ class Model(nn.Module, PyTorchModelHubMixin, repo_url="https://github.com/ultral
         """
         cfg_dict = yaml_model_load(cfg)
         self.cfg = cfg
-        self.task = task or guess_model_task(cfg_dict)
+        #self.task = task or guess_model_task(cfg_dict)
+        self.task = task
         self.model = (model or self._smart_load("model"))(cfg_dict, verbose=verbose and RANK == -1)  # build model
         self.overrides["model"] = self.cfg
         self.overrides["task"] = self.task
@@ -295,7 +294,8 @@ class Model(nn.Module, PyTorchModelHubMixin, repo_url="https://github.com/ultral
         else:
             weights = checks.check_file(weights)  # runs in all cases, not redundant with above call
             self.model, self.ckpt = weights, None
-            self.task = task or guess_model_task(weights)
+            #self.task = task or guess_model_task(weights)
+            self.task = task 
             self.ckpt_path = weights
         self.overrides["model"] = weights
         self.overrides["task"] = self.task

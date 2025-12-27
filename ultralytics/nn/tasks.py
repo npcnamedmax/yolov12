@@ -385,10 +385,8 @@ class DetectionModel(BaseModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the DetectionModel."""
-        return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
+        return v8DetectionLoss(self)
 
-class FoodModel(DetectionModel):
-    
 
 class OBBModel(DetectionModel):
     """YOLOv8 Oriented Bounding Box (OBB) model."""
