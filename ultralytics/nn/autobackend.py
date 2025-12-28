@@ -128,7 +128,7 @@ class AutoBackend(nn.Module):
         ) = self._model_type(w)
         fp16 &= pt or jit or onnx or xml or engine or nn_module or triton  # FP16
         nhwc = coreml or saved_model or pb or tflite or edgetpu  # BHWC formats (vs torch BCWH)
-        stride = 32  # default stride
+        stride, ch = 32, 3  # default stride and channels
         model, metadata, task = None, None, None
 
         # Set device
@@ -151,6 +151,7 @@ class AutoBackend(nn.Module):
             stride = max(int(model.stride.max()), 32)  # model stride
             names = model.module.names if hasattr(model, "module") else model.names  # get class names
             model.half() if fp16 else model.float()
+            ch = model.yaml.get("channels", 3)
             self.model = model  # explicitly assign for to(), cpu(), cuda(), half()
             pt = True
 
@@ -166,6 +167,7 @@ class AutoBackend(nn.Module):
             stride = max(int(model.stride.max()), 32)  # model stride
             names = model.module.names if hasattr(model, "module") else model.names  # get class names
             model.half() if fp16 else model.float()
+            ch = model.yaml.get("channels", 3)
             self.model = model  # explicitly assign for to(), cpu(), cuda(), half()
 
         # TorchScript
@@ -485,6 +487,7 @@ class AutoBackend(nn.Module):
             imgsz = metadata["imgsz"]
             names = metadata["names"]
             kpt_shape = metadata.get("kpt_shape")
+            ch = metadata.get("channels", 3)
         elif not (pt or triton or nn_module):
             LOGGER.warning(f"WARNING ⚠️ Metadata not found for 'model={weights}'")
 

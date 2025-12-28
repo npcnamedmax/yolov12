@@ -495,6 +495,9 @@ class RandomHSV:
     def __call__(self, labels):
         """Applies random horizontal or vertical flip to an image with a given probability."""
         img = labels['img']
+        if img.shape[-1] != 3:  # only apply to RGB images
+            return labels
+
         if self.hgain or self.sgain or self.vgain:
             r = np.random.uniform(-1, 1, 3) * [self.hgain, self.sgain, self.vgain] + 1  # random gains
             hue, sat, val = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
@@ -592,8 +595,13 @@ class LetterBox:
             img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
         top, bottom = int(round(dh - 0.1)) if self.center else 0, int(round(dh + 0.1))
         left, right = int(round(dw - 0.1)) if self.center else 0, int(round(dw + 0.1))
-        img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT,
-                                 value=(114, 114, 114))  # add border
+        h, w, c = img.shape
+        if c == 3:
+            img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))
+        else:  # multispectral
+            pad_img = np.full((h + top + bottom, w + left + right, c), fill_value=114, dtype=img.dtype)
+            pad_img[top : top + h, left : left + w] = img
+            img = pad_img
 
         if len(labels):
             labels = self._update_labels(labels, ratio, dw, dh)
@@ -684,6 +692,8 @@ class Albumentations:
     def __call__(self, labels):
         """Generates object detections and returns a dictionary with detection results."""
         im = labels['img']
+        if im.shape[2] != 3:  # Only apply Albumentation on 3-channel images
+            return labels
         cls = labels['cls']
         if len(cls):
             labels['instances'].convert_bbox('xywh')
