@@ -12,25 +12,30 @@ import torch
 _imshow = cv2.imshow  # copy to avoid recursion errors
 
 
-def imread(filename: str, flags: int = cv2.IMREAD_COLOR):
-    """
-    Read an image from a file.
+def imread(filename: str, flags: int = cv2.IMREAD_COLOR) -> np.ndarray | None:
+    """Read an image from a file with multilanguage filename support.
 
     Args:
         filename (str): Path to the file to read.
-        flags (int, optional): Flag that can take values of cv2.IMREAD_*. Defaults to cv2.IMREAD_COLOR.
+        flags (int, optional): Flag that can take values of cv2.IMREAD_*. Controls how the image is read.
 
     Returns:
-        (np.ndarray): The read image.
+        (np.ndarray | None): The read image array, or None if reading fails.
+
+    Examples:
+        >>> img = imread("path/to/image.jpg")
+        >>> img = imread("path/to/image.jpg", cv2.IMREAD_GRAYSCALE)
     """
     file_bytes = np.fromfile(filename, np.uint8)
     if filename.endswith((".tiff", ".tif")):
         success, frames = cv2.imdecodemulti(file_bytes, cv2.IMREAD_UNCHANGED)
         if success:
-            return np.stack(frames, axis=2)  # or np.asarray(frames).transpose(1,2,0)
+            # Handle multi-frame TIFFs and color images
+            return frames[0] if len(frames) == 1 and frames[0].ndim == 3 else np.stack(frames, axis=2)
         return None
     else:
-        return cv2.imdecode(file_bytes, flags)
+        im = cv2.imdecode(file_bytes, flags)
+        return im[..., None] if im is not None and im.ndim == 2 else im  # Always ensure 3 dimensions
 
 def imwrite(filename: str, img: np.ndarray, params=None):
     """

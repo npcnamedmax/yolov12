@@ -507,6 +507,9 @@ class RandomHSV:
             lut_hue = ((x * r[0]) % 180).astype(dtype)
             lut_sat = np.clip(x * r[1], 0, 255).astype(dtype)
             lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
+            lut_sat[0] = 0 # prevent pure white changing color, introduced in 8.3.79
+
+            
 
             im_hsv = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val)))
             cv2.cvtColor(im_hsv, cv2.COLOR_HSV2BGR, dst=img)  # no return needed
@@ -914,7 +917,7 @@ class RandomLoadText:
             valid_labels = len(pos_labels) + len(neg_labels)
             num_padding = self.max_samples - valid_labels
             if num_padding > 0:
-                texts += [self.padding_value] * num_padding
+                texts += random.choices(self.padding_value, k=num_padding)
 
         labels["texts"] = texts
         return labels

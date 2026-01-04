@@ -174,7 +174,7 @@ class YOLODataset(BaseDataset):
                 lb["segments"] = []
         if len_cls == 0:
             LOGGER.warning(f"WARNING ⚠️ No labels found in {cache_path}, training may not work correctly. {HELP_URL}")
-        print(labels)
+        #print(labels)
         return labels
 
     def build_transforms(self, hyp=None):
@@ -259,10 +259,10 @@ class YOLODataset(BaseDataset):
                 value = [torch.as_tensor(v) if not isinstance(v, torch.Tensor) else v for v in value] # Convert each element to a tensor if it isn't already one
                 value = torch.cat(value, 0)
             if k in ['bboxes']:
-                print(f"Tensor Shape: {value[0].shape}")
+                #print(f"Tensor Shape: {value[0].shape}")
                 filtered_value = [v for v in value if v.dim() > 1 and v.size(1) == 5]
                 if len(filtered_value) == 0:
-                    print("filtered value: " , len(filtered_value), "Key is: ", k)
+                    #print("filtered value: " , len(filtered_value), "Key is: ", k)
                     raise ValueError(f"No valid tensors with size[1] == 5 for key '{k}'.")
                 value = torch.cat(filtered_value, 0)    
                 #print(f"[COLLATE] Batched bboxes shape: {value.shape}")

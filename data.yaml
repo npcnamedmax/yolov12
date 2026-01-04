@@ -3,6 +3,7 @@ val: Food_Portion_Benchmark/FPB_Dataset/RGB/val/images
 test: Food_Portion_Benchmark/FPB_Dataset/RGB/test/images
 
 nc: 138
+channels: 3
 names:
   [
     "achichuk",
