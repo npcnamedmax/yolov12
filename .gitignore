@@ -1,3 +1,6 @@
 *__pycache__/
 runs/*
-./train.py
+train.py
+*.pt
+calculate_MAE.py
+data.yaml

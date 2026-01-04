@@ -271,7 +271,7 @@ class v8DetectionLoss:
                 reduction="sum"
             ) / target_scores_sum if mass_mask.sum() > 0 else 0
                     
-
+        # print(loss[0], loss[1], loss[2], loss[3])
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
