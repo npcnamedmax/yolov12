@@ -220,7 +220,7 @@ def non_max_suppression(
         prediction = prediction[0]  # select only inference output
 
     bs = prediction.shape[0]  # batch size (BCN, i.e. 1,84,6300)
-    nc = nc or ((prediction.shape[1] - 4) / 2)  # number of classes
+    nc = nc or ((prediction.shape[1] - 4) // 2)  # number of classes
     nm = prediction.shape[1] - (2 * nc) - 4  # number of masks
     mi = 4 + nc  # mask start index
     xc = prediction[:, 4:mi].amax(1) > conf_thres  # candidates
