@@ -208,7 +208,7 @@ class v8DetectionLoss:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
         loss = torch.zeros(3 + 1, device=self.device)  # box, cls, dfl, mass
         feats = preds[1] if isinstance(preds, tuple) else preds
-        pred_distri, pred_mass, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
+        pred_distri, pred_scores, pred_mass = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc, self.nc), 1
         )
 
@@ -255,7 +255,7 @@ class v8DetectionLoss:
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
         loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
-
+        
         # Bbox loss
         if fg_mask.sum():
             target_bboxes /= stride_tensor
@@ -271,7 +271,7 @@ class v8DetectionLoss:
                 reduction="sum"
             ) / target_scores_sum if mass_mask.sum() > 0 else 0
                     
-        # print(loss[0], loss[1], loss[2], loss[3])
+        print(loss[0], loss[1], loss[2], loss[3])
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain

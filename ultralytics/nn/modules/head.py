@@ -205,7 +205,7 @@ class Detect(nn.Module):
         )
         
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
-
+        #self.bias_init()
         
     def forward(self, x):
         """Concatenates and returns predicted bounding boxes and class probabilities."""
@@ -263,6 +263,7 @@ class Detect(nn.Module):
         m = self  # self.model[-1]  # Detect() module
         # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1
         # ncf = math.log(0.6 / (m.nc - 0.999999)) if cf is None else torch.log(cf / cf.sum())  # nominal class frequency
+        print("NUM CLASS", m.nc)
         for a, b, c, s in zip(m.cv2, m.cv3, m.cv4, m.stride):  
             a[-1].bias.data[:] = 1.0  # box
             b[-1].bias.data[: m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
