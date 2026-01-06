@@ -265,13 +265,25 @@ class v8DetectionLoss:
 
             mass_mask = target_mass > 0 # checks if theres any invalid/missing mass labels
 
-            loss[3] = F.l1_loss(
-                pred_mass[mass_mask], 
-                target_mass[mass_mask],
+        if mass_mask.sum() > 0:
+            # 1. Clamp predictions to 0. Mass cannot be negative, and log of negative is NaN.
+            #    We use 1e-6 as a tiny buffer just in case, though log1p(0) is safe.
+            pred_safe = pred_mass[mass_mask].clamp(min=0)
+            
+            # 2. Apply Log(x + 1) to both Prediction and Target
+            #    We use log1p because it is numerically more stable for small values than log(x+1)
+            log_pred = torch.log1p(pred_safe)
+            log_target = torch.log1p(target_mass[mass_mask])
+            
+            # 3. Calculate MSE between the logs
+            loss[3] = F.mse_loss(
+                log_pred, 
+                log_target, 
                 reduction="sum"
-            ) / target_scores_sum if mass_mask.sum() > 0 else 0
-                    
-        print(loss[0], loss[1], loss[2], loss[3])
+            ) / target_scores_sum 
+        else:
+            loss[3] = 0.0
+            
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
