@@ -283,11 +283,11 @@ class v8DetectionLoss:
             ) / target_scores_sum 
         else:
             loss[3] = 0.0
-            
+
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
-        loss[3] *= self.hyp.mass
+        loss[3] *= 0.5
 
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
