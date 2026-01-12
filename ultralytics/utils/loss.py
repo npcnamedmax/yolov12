@@ -208,13 +208,13 @@ class v8DetectionLoss:
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
         loss = torch.zeros(3 + 1, device=self.device)  # box, cls, dfl, mass
         feats = preds[1] if isinstance(preds, tuple) else preds
-        pred_distri, pred_scores, pred_mass = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
+        pred_distri, pred_scores, pred_density = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc, self.nc), 1
         )
 
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
-        pred_mass = pred_mass.permute(0, 2, 1).contiguous()
+        pred_density = pred_density.permute(0, 2, 1).contiguous()
 
         dtype = pred_scores.dtype
         batch_size = pred_scores.shape[0]
@@ -265,29 +265,38 @@ class v8DetectionLoss:
 
             mass_mask = target_mass > 0 # checks if theres any invalid/missing mass labels
 
-        if mass_mask.sum() > 0:
-            # 1. Clamp predictions to 0. Mass cannot be negative, and log of negative is NaN.
-            #    We use 1e-6 as a tiny buffer just in case, though log1p(0) is safe.
-            pred_safe = pred_mass[mass_mask].clamp(min=0)
-            
-            # 2. Apply Log(x + 1) to both Prediction and Target
-            #    We use log1p because it is numerically more stable for small values than log(x+1)
-            log_pred = torch.log1p(pred_safe)
-            log_target = torch.log1p(target_mass[mass_mask])
-            
-            # 3. Calculate MSE between the logs
-            loss[3] = F.mse_loss(
-                log_pred, 
-                log_target, 
-                reduction="sum"
-            ) / target_scores_sum 
-        else:
-            loss[3] = 0.0
+            if mass_mask.sum() > 0:
+                # 1. Clamp predictions to 0. Mass cannot be negative, and log of negative is NaN.
+                #    We use 1e-6 as a tiny buffer just in case, though log1p(0) is safe.
+                pred_density = pred_density[mass_mask].clamp(min=0)
+                target_w = target_bboxes[..., 2] - target_bboxes[..., 0]
+                target_h = target_bboxes[..., 3] - target_bboxes[..., 1]
+                gt_area = target_w*target_h
+
+                gt_area_expanded = gt_area.unsqueeze(-1).expand_as(target_mass)
+                
+                # Select only the areas corresponding to the valid mass targets
+                valid_gt_area = gt_area_expanded[mass_mask]
+
+                pred_mass = pred_density * valid_gt_area
+                # 2. Apply Log(x + 1) to both Prediction and Target
+                #    We use log1p because it is numerically more stable for small values than log(x+1)
+                log_pred = torch.log1p(pred_mass)
+                log_target = torch.log1p(target_mass[mass_mask])
+                
+                # 3. Calculate MSE between the logs
+                loss[3] = F.mse_loss(
+                    log_pred, 
+                    log_target, 
+                    reduction="sum"
+                ) / target_scores_sum 
+            else:
+                loss[3] = 0.0
 
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.cls  # cls gain
         loss[2] *= self.hyp.dfl  # dfl gain
-        loss[3] *= 0.5
+        loss[3] *= 2.4
 
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
