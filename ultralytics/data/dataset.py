@@ -261,6 +261,12 @@ class YOLODataset(BaseDataset):
             if k in ['bboxes']:
                 #print(f"Tensor Shape: {value[0].shape}")
                 filtered_value = [v for v in value if v.dim() > 1 and v.size(1) == 5]
+                sample_box = filtered_value[0][0]
+                mass_val = sample_box[4].item()
+                print(f"✅ LOADING VERIFICATION:")
+                print(f"   Full Row: {sample_box.numpy()}")
+                print(f"   Mass Value: {mass_val:.4f}")
+                print("-" * 30)
                 if len(filtered_value) == 0:
                     #print("filtered value: " , len(filtered_value), "Key is: ", k)
                     raise ValueError(f"No valid tensors with size[1] == 5 for key '{k}'.")
