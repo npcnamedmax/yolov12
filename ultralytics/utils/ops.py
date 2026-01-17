@@ -209,7 +209,7 @@ def non_max_suppression(
     Returns:
         (List[torch.Tensor]): A list of length batch_size, where each element is a tensor of
             shape (num_boxes, 7 + num_masks) containing the kept boxes, with columns
-            (x1, y1, x2, y2, confidence, class, mask1, mask2, ...).
+            (x1, y1, x2, y2, confidence, class, mask1, mask2, ..., mass).
     """
     import torchvision  # scope for faster 'import ultralytics'
 
@@ -221,6 +221,9 @@ def non_max_suppression(
 
     bs = prediction.shape[0]  # batch size (BCN, i.e. 1,84,6300)
     nc = nc or ((prediction.shape[1] - 4) // 2)  # number of classes
+    # Only needed if you use Segmentation Masks
+    if nc is None:
+        raise ValueError("Please provide 'nc' explicitly when using masks + mass")
     nm = prediction.shape[1] - (2 * nc) - 4  # number of masks
     mi = 4 + nc  # mask start index
     xc = prediction[:, 4:mi].amax(1) > conf_thres  # candidates

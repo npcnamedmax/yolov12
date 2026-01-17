@@ -538,7 +538,7 @@ class RTDETRDetectionModel(DetectionModel):
         gt_groups = [(batch_idx == i).sum().item() for i in range(bs)]
         targets = {
             "cls": batch["cls"].to(img.device, dtype=torch.long).view(-1),
-            "bboxes": batch["bboxes"].to(device=img.device),
+            "bboxes": batch["bboxes"][:, :4].to(device=img.device),
             "batch_idx": batch_idx.to(img.device, dtype=torch.long).view(-1),
             "gt_groups": gt_groups,
         }

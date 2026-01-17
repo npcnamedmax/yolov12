@@ -29,7 +29,7 @@ class DetectionPredictor(BasePredictor):
             agnostic=self.args.agnostic_nms,
             max_det=self.args.max_det,
             classes=self.args.classes,
-        )
+        ) #(num boxes, (x1, y1, x2, y2, confidence, class, mask1, mask2, ..., mass)).
 
         if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list
             orig_imgs = ops.convert_torch2numpy_batch(orig_imgs)

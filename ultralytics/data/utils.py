@@ -128,7 +128,6 @@ def verify_image_label(args):
             if nl := len(lb):
                 if keypoint:
                     assert lb.shape[1] == (6 + nkpt * ndim), f"labels require {(6 + nkpt * ndim)} columns each"
-                    points = lb[:, 6:].reshape(-1, ndim)[:, :2]
                 else:
                     assert lb.shape[1] == 6, f"labels require 6 columns, {lb.shape[1]} columns detected"
                 assert (lb[:, 1:5] <= 1).all(), \
